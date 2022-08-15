@@ -1,3 +1,3 @@
 # Stock-Market-Analysis
 
-Hello
+There are 3 important files. All of the files utilize the same dependencies which reside in environment.txt.
