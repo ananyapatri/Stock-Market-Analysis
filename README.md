@@ -1,6 +1,6 @@
 # Stock-Market-Analysis
 
-##Installing Dependencies
+## Installing Dependencies
 
 There are 3 important files. All of the files utilize the same dependencies which reside in environment.txt. First create a virtual environment using python3. In your terminal, create a folder, download all of this code in it, and enter this code:(make sure you are in the folder when you create the environment)
 
@@ -22,6 +22,6 @@ python -m pip install -r requirements.txt
 
 ##montecarlo.py
 
-##optimize.py
+## optimize.py
 
-##sigmoidal.py
+## sigmoidal.py
