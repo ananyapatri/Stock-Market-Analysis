@@ -13,6 +13,44 @@ from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
 import time
 import copy
+
+def portfolio_volatility(weights, mean_returns, cov_matrix):
+    return portfolio_annualised_performance(weights, mean_returns, cov_matrix)[0]
+
+def efficient_return(mean_returns, cov_matrix, target):
+    num_assets = len(mean_returns)
+    args = (mean_returns, cov_matrix)
+
+    def portfolio_return(weights):
+        return portfolio_annualised_performance(weights, mean_returns, cov_matrix)[1]
+
+    constraints = ({'type': 'eq', 'fun': lambda x: portfolio_return(x) - target},
+                   {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0,1) for asset in range(num_assets))
+    result = sco.minimize(portfolio_volatility, num_assets*[1./num_assets,], args=args, method='SLSQP', bounds=bounds, constraints=constraints)
+    return result
+
+
+def efficient_frontier(mean_returns, cov_matrix, returns_range):
+    efficients = []
+    for ret in returns_range:
+        efficients.append(efficient_return(mean_returns, cov_matrix, ret))
+    return efficients
+
+def neg_sharpe_ratio(weights, mean_returns, cov_matrix, risk_free_rate):
+    p_var, p_ret = portfolio_annualised_performance(weights, mean_returns, cov_matrix)
+    return -(p_ret - risk_free_rate) / p_var
+
+def max_sharpe_ratio(mean_returns, cov_matrix, risk_free_rate):
+    num_assets = len(mean_returns)
+    args = (mean_returns, cov_matrix, risk_free_rate)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bound = (0.0,1.0)
+    bounds = tuple(bound for asset in range(num_assets))
+    result = sco.minimize(neg_sharpe_ratio, num_assets*[1./num_assets,], args=args,
+                        method='SLSQP', bounds=bounds, constraints=constraints)
+    return result
+
 def getData(tickers):
     """
     Input: list of ticker symbols
@@ -67,16 +105,32 @@ def display_simulated_ef_with_random(mean_returns, cov_matrix, num_portfolios, r
     Input: mean_returns, cov_matrix, num_portfolios, risk_free_rate, log_returns
     Output: A list of percentages of how much to invest in each stock
     """
-    results, weights = random_portfolios(num_portfolios,mean_returns, cov_matrix, risk_free_rate, log_returns, stock_num)
-    max_sharpe_idx = np.argmax(results[2])
-    sdp, rp = results[0,max_sharpe_idx], results[1,max_sharpe_idx]
-    max_sharpe_allocation = pd.DataFrame(weights[max_sharpe_idx],index=log_returns.columns,columns=['allocation'])
-    money = []
+    max_sharpe = max_sharpe_ratio(mean_returns, cov_matrix, risk_free_rate)
+    sdp, rp = portfolio_annualised_performance(max_sharpe['x'], mean_returns, cov_matrix)
+    target_return=efficient_return(mean_returns, cov_matrix, 1.5*rp)
+
+
+    max_sharpe_allocation = pd.DataFrame(max_sharpe.x,index=log_returns.columns,columns=['allocation'])
     max_sharpe_allocation.allocation = [round(i*100,2)for i in max_sharpe_allocation.allocation]
+
+    money = []
     for i in max_sharpe_allocation.allocation:
         amount = round((i/100.0),4)#adds each percentage to the list, rounds to 4 decimal places
         money.append(amount)
+
     max_sharpe_allocation = max_sharpe_allocation.T
+
+    """
+    target_return_allocation = pd.DataFrame(target_return.x,index=log_returns.columns,columns=['allocation'])
+    target_return_allocation.allocation = [round(i*100,2)for i in target_return_allocation.allocation]
+
+    money = []
+    for i in target_return_allocation.allocation:
+        amount = round((i/100.0),4)#adds each percentage to the list, rounds to 4 decimal places
+        money.append(amount)
+
+    target_return_allocation = target_return_allocation.T
+    """
     return money
 
 def returns_calculation(percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data):
@@ -118,7 +172,7 @@ def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
     signal_val = signal_line.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
     new_macd = MACD.iloc[macd_val]
     new_signal = signal_line.iloc[signal_val]
-    values = [0]*len(percentages)
+    values = [0]*len(percentages)#[0,0,0,0]
     for i in range(len(percentages)):
         if (new_macd[i] > new_signal[i]):
             values[i] -= 1
@@ -128,7 +182,7 @@ def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
         if (new_macd[i] > 0 and new_signal[i] > 0):
             values[i] += 1
     return values
-
+    
 def sigmoidal_function(sigmoidal_values, percentages):
     """
     Description: uses the function- L/(1 + e^(-k(x - xo)))
@@ -140,15 +194,15 @@ def sigmoidal_function(sigmoidal_values, percentages):
     percentages_copy = copy.deepcopy(percentages)
     for i in range(len(sigmoidal_values)):
         weightage = 2/(1 + 2.71828**(-1*sigmoidal_values[i]))
-        percentages[i]*weightage
+        percentages_copy[i] = percentages[i]*weightage
     norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]#normalizes the list so they add to 1
     return norm
 
 def calculations(tickers, curr_year, initial_investment):
     data, fifty, twohundred, MACD, signal_line = getData(tickers)
+    new_data = data.to_numpy()
+    print(new_data)
     sigmoidal_values = []
-    for i in range(len(tickers)):
-        sigmoidal_values.append(0)
     num_portfolios = 25000
     risk_free_rate = 0.0178
     count = 0
@@ -174,11 +228,17 @@ def calculations(tickers, curr_year, initial_investment):
         if count == 0:
             static_percentages = percentages
         #sigmoidal data under this
-        value1 = macd_signal_static = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)
-        value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)
+        value1 = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)#[0, -1, 1, 2]
+        print(value1)
+        value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
+        print(value2)
+        sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
             sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i]
+        print(sigmoidal_values)
+        print(percentages)
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
+        print(sigmoidal_percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)
         month += 1
