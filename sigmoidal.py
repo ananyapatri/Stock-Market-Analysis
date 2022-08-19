@@ -8,7 +8,7 @@ import dash
 from dash import dcc
 from dash import html
 import talib as ta
-from talib import RSI, BBANDS, STOCH
+from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI
 import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
@@ -228,6 +228,21 @@ def stochastic_oscillator(old_data, new_data, curr_year, curr_month, percentages
         if k[row] < 20 and d[row] < 20 and k[row] > d[row]:
             #buy
             values[i] += 1
+    return values
+
+def adx(old_data, new_data, curr_year, curr_month, percentages, row):
+    values = [0]*len(percentages)
+    high_data = old_data['High'].to_numpy()
+    low_data = old_data['Low'].to_numpy()
+    close_data = old_data['Close'].to_numpy()
+    for i in range(len(percentages)):
+        adx = ADX(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14)
+        di_minus = MINUS_DI(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14) #MINUS_DI
+        di_plus = PLUS_DI(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14) #PLUS_DI
+        if(adx[row] > 20 and di_plus[row] > di_minus[row]):
+            values[i] += 1
+        if(adx[row] > 20 and di_plus[row] < di_minus[row]):
+            values[i] -= 1
     print(values)
     return values
 
@@ -267,9 +282,11 @@ def calculations(tickers, curr_year, initial_investment):
         value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
         value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
         value4 = stochastic_oscillator(old_data, new_data, curr_year, curr_month, percentages, row)
+        #value5 makes things worse :(
+        value5 = adx(old_data, new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
-            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i]
+            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i]
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)
