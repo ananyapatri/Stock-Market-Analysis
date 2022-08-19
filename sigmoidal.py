@@ -8,7 +8,7 @@ import dash
 from dash import dcc
 from dash import html
 import talib as ta
-from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI, AROON
+from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI, AROON, TRIX
 import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
@@ -255,6 +255,17 @@ def aroon(old_data, new_data, curr_year, curr_month, percentages, row):
             values[i] += 1
         if(up[row] < down[row] and down[row] >= 95 and up[row] <= 5):
             values[i] -= 1
+    return values
+
+def trix(old_data, new_data, curr_year, curr_month, percentages, row):
+    values = [0]*len(percentages)
+    close_data = old_data['Close'].to_numpy()
+    for i in range(len(percentages)):
+        trix = TRIX(close_data[:,i], timeperiod=30)
+        if(trix[row] > 0):
+            values[i] += 1
+        if(trix[row] < 0):
+            values[i] -= 1
     print(values)
     return values
 
@@ -294,13 +305,12 @@ def calculations(tickers, curr_year, initial_investment):
         value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
         value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
         value4 = stochastic_oscillator(old_data, new_data, curr_year, curr_month, percentages, row)
-        #value5 makes things worse :(
-        #second try value5 did better??
         value5 = adx(old_data, new_data, curr_year, curr_month, percentages, row)
         value6 = aroon(old_data, new_data, curr_year, curr_month, percentages, row)
+        value7 = trix(old_data, new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
-            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i] + value6[i]
+            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i] + value6[i] + value7[i]
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)
