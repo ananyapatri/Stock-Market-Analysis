@@ -8,6 +8,7 @@ import dash
 from dash import dcc
 from dash import html
 import talib as ta
+from talib import RSI, BBANDS
 import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
@@ -183,17 +184,6 @@ def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
             values[i] += 1
     return values
 
-def bollingerbands(new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    for i in range(len(percentages)):
-        up, mid, low = BBANDS(new_data[ :,i], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
-        if(new_data[row,i] > up[row]):
-            values[i] += 1
-        if(new_data[row,i] < low[row]):
-            values[i] -= 1
-    print(values)
-    return values
-    
 def sigmoidal_function(sigmoidal_values, percentages):
     """
     Description: uses the function- L/(1 + e^(-k(x - xo)))
@@ -204,10 +194,21 @@ def sigmoidal_function(sigmoidal_values, percentages):
     """
     percentages_copy = copy.deepcopy(percentages)
     for i in range(len(sigmoidal_values)):
-        weightage = 2/(1 + 2.71828**(-1*sigmoidal_values[i]))
+        weightage = 3/(1 + 2.71828**(-1*sigmoidal_values[i]))
         percentages_copy[i] = percentages[i]*weightage
     norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]#normalizes the list so they add to 1
     return norm
+
+def bollingerbands(new_data, curr_year, curr_month, percentages, row):
+    values = [0]*len(percentages)
+    for i in range(len(percentages)):
+        up, mid, low = BBANDS(new_data[ :,i], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        if(new_data[row,i] > up[row]):
+            values[i] += 1
+        if(new_data[row,i] < low[row]):
+            values[i] -= 1
+    print(values)
+    return values
 
 def calculations(tickers, curr_year, initial_investment):
     data, fifty, twohundred, MACD, signal_line = getData(tickers)
@@ -231,8 +232,9 @@ def calculations(tickers, curr_year, initial_investment):
     log_returns = setup(past_start, past_end, month, tickers, data)
     stock_num = len(tickers)
 
+
     while not(curr_year == 2022 and curr_month == 8):
-	row = data.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
+        row = data.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
         log_returns = setup(past_start, past_end, month, tickers, data)
         cov_matrix = log_returns.cov()
         mean_returns = log_returns.mean()
@@ -242,14 +244,11 @@ def calculations(tickers, curr_year, initial_investment):
         #sigmoidal data under this
         value1 = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)#[0, -1, 1, 2]
         value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
-	value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
+        value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
             sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i]
-        print(sigmoidal_values)
-        print(percentages)
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
-        print(sigmoidal_percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)
         month += 1
@@ -293,12 +292,6 @@ if __name__ == "__main__" :
     State('current-year-slider', 'value'),
 	State('investment-slider', 'value')],
     Input('submit-val', 'n_clicks'))
-
-
-    #Input('current-year-slider', 'value'),
-	#Input('investment-slider', 'value'),
-    #Input('submit-val', 'n_clicks'))
-
 
     def update_figure( stocks, year, investment, n_clicks):
         if n_clicks is None:
