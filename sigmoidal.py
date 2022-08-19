@@ -8,7 +8,7 @@ import dash
 from dash import dcc
 from dash import html
 import talib as ta
-from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI, AROON, TRIX
+from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI, AROON, TRIX, CMO
 import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
@@ -266,7 +266,20 @@ def trix(old_data, new_data, curr_year, curr_month, percentages, row):
             values[i] += 1
         if(trix[row] < 0):
             values[i] -= 1
-    print(values)
+    return values
+
+def chande(old_data, new_data, curr_year, curr_month, percentages, row):
+    values = [0]*len(percentages)
+    close_data = old_data['Close'].to_numpy()
+    for i in range(len(percentages)):
+        chande = CMO(close_data[:,i], timeperiod=14)
+        if(chande[row] > 50):
+            values[i] -= 1
+        if(chande[row] < -50):
+            values[i] += 1
+        if (chande[row-1] < 0 and chande[row] > 0):
+            values[i] += 1
+    # print(values)
     return values
 
 def calculations(tickers, curr_year, initial_investment):
@@ -308,9 +321,11 @@ def calculations(tickers, curr_year, initial_investment):
         value5 = adx(old_data, new_data, curr_year, curr_month, percentages, row)
         value6 = aroon(old_data, new_data, curr_year, curr_month, percentages, row)
         value7 = trix(old_data, new_data, curr_year, curr_month, percentages, row)
+        value8 = chande(old_data, new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
-            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i] + value6[i] + value7[i]
+            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i] + value6[i] + value7[i] + value8[i]
+        print (sigmoidal_values)
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)
