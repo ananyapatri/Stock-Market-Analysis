@@ -182,6 +182,17 @@ def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
         if (new_macd[i] > 0 and new_signal[i] > 0):
             values[i] += 1
     return values
+
+def bollingerbands(new_data, curr_year, curr_month, percentages, row):
+    values = [0]*len(percentages)
+    for i in range(len(percentages)):
+        up, mid, low = BBANDS(new_data[ :,i], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        if(new_data[row,i] > up[row]):
+            values[i] += 1
+        if(new_data[row,i] < low[row]):
+            values[i] -= 1
+    print(values)
+    return values
     
 def sigmoidal_function(sigmoidal_values, percentages):
     """
@@ -221,6 +232,7 @@ def calculations(tickers, curr_year, initial_investment):
     stock_num = len(tickers)
 
     while not(curr_year == 2022 and curr_month == 8):
+	row = data.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
         log_returns = setup(past_start, past_end, month, tickers, data)
         cov_matrix = log_returns.cov()
         mean_returns = log_returns.mean()
@@ -229,12 +241,11 @@ def calculations(tickers, curr_year, initial_investment):
             static_percentages = percentages
         #sigmoidal data under this
         value1 = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)#[0, -1, 1, 2]
-        print(value1)
         value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
-        print(value2)
+	value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
-            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i]
+            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i]
         print(sigmoidal_values)
         print(percentages)
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
