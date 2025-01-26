@@ -1,4 +1,5 @@
 import pandas as pd
+import yfinance as yf
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.optimize as sco
@@ -8,7 +9,7 @@ import dash
 from dash import dcc
 from dash import html
 import talib as ta
-from talib import RSI, BBANDS, STOCH, ADX, MINUS_DI, PLUS_DI, AROON, TRIX, CMO
+from talib import RSI, BBANDS
 import plotly.express as px
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
@@ -52,25 +53,44 @@ def max_sharpe_ratio(mean_returns, cov_matrix, risk_free_rate):
                         method='SLSQP', bounds=bounds, constraints=constraints)
     return result
 
+import yfinance as yf
+import datetime as dt
+
+import yfinance as yf
+import datetime as dt
+
 def getData(tickers):
-    """
-    Input: list of ticker symbols
-    Description: Gets data for the ticker symbols
-    Output: Pandas dataframe of 'Adj Close' for Ticker symbols, fifty, and two hundred MA
-    """
     start = dt.datetime(2016, 1, 1)
     end = dt.datetime(2022, 8, 1)
-    data = pdr.get_data_yahoo(tickers, start, end)
-    old_data = data
-    exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = data['Close'].ewm(span=26, adjust=False).mean()
-    MACD = exp1 - exp2
-    signal_line = MACD.ewm(span=9, adjust=False).mean()
-    #gets data from january 2016 to july 2022
-    data = data['Adj Close']#truncates data to only the 'Adj Close'
-    fifty = data.rolling(window=50).mean()#gets data for fifty day MA
-    twohundred = data.rolling(window=200).mean()#gets data for twohundred day MA
-    return old_data, data, fifty, twohundred, MACD, signal_line
+
+    try:
+        # Download the data
+        data = yf.download(tickers, start=start, end=end)
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        data = None
+
+    if data is not None:
+        print("Data columns:", data.columns)  # Print the column names to check for 'Close'
+
+        # Extract the 'Close' prices for each ticker (using MultiIndex)
+        data = data['Close']
+
+        # Calculate exponential moving averages (EMA)
+        exp1 = data.ewm(span=12, adjust=False).mean()
+        exp2 = data.ewm(span=26, adjust=False).mean()
+        MACD = exp1 - exp2
+        signal_line = MACD.ewm(span=9, adjust=False).mean()
+
+        # Calculate moving averages (50-day and 200-day)
+        fifty = data.rolling(window=50).mean()
+        twohundred = data.rolling(window=200).mean()
+
+        return data, fifty, twohundred, MACD, signal_line
+    else:
+        return None, None, None, None, None
+
+
 
 def setup(startyear, endyear, month, tickers, data):
     """
@@ -208,82 +228,11 @@ def bollingerbands(new_data, curr_year, curr_month, percentages, row):
             values[i] += 1
         if(new_data[row,i] < low[row]):
             values[i] -= 1
-    #print(values)
-    return values
-
-def stochastic_oscillator(old_data, new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    high_data = old_data['High'].to_numpy()
-    low_data = old_data['Low'].to_numpy()
-    close_data = old_data['Close'].to_numpy()
-    for i in range(len(percentages)):
-        # d = stochastic_d(new_data[ :,i], period=3, k_period=14)
-        # k = stochastic_k(new_data[ :,i], period=14)
-        k, d = STOCH(high_data[:,i], low_data[:,i], close_data[:,i], fastk_period=5, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
-        # Overbought status
-        if k[row] > 80 and d[row] > 80 and k[row] < d[row]:
-            #sell
-            values[i] -= 1
-        # Oversold status
-        if k[row] < 20 and d[row] < 20 and k[row] > d[row]:
-            #buy
-            values[i] += 1
-    return values
-
-def adx(old_data, new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    high_data = old_data['High'].to_numpy()
-    low_data = old_data['Low'].to_numpy()
-    close_data = old_data['Close'].to_numpy()
-    for i in range(len(percentages)):
-        adx = ADX(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14)
-        di_minus = MINUS_DI(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14) #MINUS_DI
-        di_plus = PLUS_DI(high_data[:,i], low_data[:,i], close_data[:,i], timeperiod=14) #PLUS_DI
-        if(adx[row] > 20 and di_plus[row] > di_minus[row]):
-            values[i] += 1
-        if(adx[row] > 20 and di_plus[row] < di_minus[row]):
-            values[i] -= 1
-    return values
-
-def aroon(old_data, new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    high_data = old_data['High'].to_numpy()
-    low_data = old_data['Low'].to_numpy()
-    for i in range(len(percentages)):
-        down, up = AROON(high_data[:,i], low_data[:,i], timeperiod=14)
-        if(up[row] > down[row] and up[row] >= 95 and down[row] <= 5):
-            values[i] += 1
-        if(up[row] < down[row] and down[row] >= 95 and up[row] <= 5):
-            values[i] -= 1
-    return values
-
-def trix(old_data, new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    close_data = old_data['Close'].to_numpy()
-    for i in range(len(percentages)):
-        trix = TRIX(close_data[:,i], timeperiod=30)
-        if(trix[row] > 0):
-            values[i] += 1
-        if(trix[row] < 0):
-            values[i] -= 1
-    return values
-
-def chande(old_data, new_data, curr_year, curr_month, percentages, row):
-    values = [0]*len(percentages)
-    close_data = old_data['Close'].to_numpy()
-    for i in range(len(percentages)):
-        chande = CMO(close_data[:,i], timeperiod=14)
-        if(chande[row] > 50):
-            values[i] -= 1
-        if(chande[row] < -50):
-            values[i] += 1
-        if (chande[row-1] < 0 and chande[row] > 0):
-            values[i] += 1
-    # print(values)
+    print(values)
     return values
 
 def calculations(tickers, curr_year, initial_investment):
-    old_data, data, fifty, twohundred, MACD, signal_line = getData(tickers)
+    data, fifty, twohundred, MACD, signal_line = getData(tickers)
     new_data = data.to_numpy()
     print(new_data)
     sigmoidal_values = []
@@ -317,15 +266,9 @@ def calculations(tickers, curr_year, initial_investment):
         value1 = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)#[0, -1, 1, 2]
         value2 = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)#[-1, 2, 1, 0]
         value3 = bollingerbands(new_data, curr_year, curr_month, percentages, row)
-        value4 = stochastic_oscillator(old_data, new_data, curr_year, curr_month, percentages, row)
-        value5 = adx(old_data, new_data, curr_year, curr_month, percentages, row)
-        value6 = aroon(old_data, new_data, curr_year, curr_month, percentages, row)
-        value7 = trix(old_data, new_data, curr_year, curr_month, percentages, row)
-        value8 = chande(old_data, new_data, curr_year, curr_month, percentages, row)
         sigmoidal_values = [0]*len(tickers)
         for i in range(len(sigmoidal_values)):
-            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i] + value4[i] + value5[i] + value6[i] + value7[i] + value8[i]
-        print (sigmoidal_values)
+            sigmoidal_values[i] = sigmoidal_values[i] + value1[i] + value2[i] + value3[i]
         sigmoidal_percentages = sigmoidal_function(sigmoidal_values, percentages)
         initial_investment = returns_calculation(sigmoidal_percentages, initial_investment, curr_year, curr_end_year, curr_month, curr_end_month, data)
         market_value.append(initial_investment)

@@ -13,24 +13,38 @@ from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
 import time
 import copy
+import yfinance as yf
+
 def getData(tickers):
-    """
-    Input: list of ticker symbols
-    Description: Gets data for the ticker symbols
-    Output: Pandas dataframe of 'Adj Close' for Ticker symbols, fifty, and two hundred MA
-    """
-    start = dt.datetime(1999, 1, 1)
+    start = dt.datetime(2016, 1, 1)
     end = dt.datetime(2022, 8, 1)
-    data = pdr.get_data_yahoo(tickers, start, end)
-    exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = data['Close'].ewm(span=26, adjust=False).mean()
-    MACD = exp1 - exp2
-    signal_line = MACD.ewm(span=9, adjust=False).mean()
-    #gets data from january 2016 to july 2022
-    data = data['Adj Close']#truncates data to only the 'Adj Close'
-    fifty = data.rolling(window=50).mean()#gets data for fifty day MA
-    twohundred = data.rolling(window=200).mean()#gets data for twohundred day MA
-    return data, fifty, twohundred, MACD, signal_line
+
+    try:
+        # Download the data
+        data = yf.download(tickers, start=start, end=end)
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        data = None
+
+    if data is not None:
+        print("Data columns:", data.columns)  # Print the column names to check for 'Close'
+
+        # Extract the 'Close' prices for each ticker (using MultiIndex)
+        data = data['Close']
+
+        # Calculate exponential moving averages (EMA)
+        exp1 = data.ewm(span=12, adjust=False).mean()
+        exp2 = data.ewm(span=26, adjust=False).mean()
+        MACD = exp1 - exp2
+        signal_line = MACD.ewm(span=9, adjust=False).mean()
+
+        # Calculate moving averages (50-day and 200-day)
+        fifty = data.rolling(window=50).mean()
+        twohundred = data.rolling(window=200).mean()
+
+        return data, fifty, twohundred, MACD, signal_line
+    else:
+        return None, None, None, None, None
 
 def setup(startyear, endyear, month, tickers, data):
     """
