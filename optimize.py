@@ -4,13 +4,8 @@ import matplotlib.pyplot as plt
 import scipy.optimize as sco
 import pandas_datareader as pdr
 import datetime as dt
-import dash
-from dash import dcc
-from dash import html
 import talib as ta
 import plotly.express as px
-from dash import Dash, dcc, html
-from dash.dependencies import Input, Output, State
 import time
 import copy
 import yfinance as yf
@@ -52,6 +47,36 @@ def max_sharpe_ratio(mean_returns, cov_matrix, risk_free_rate):
     result = sco.minimize(neg_sharpe_ratio, num_assets*[1./num_assets,], args=args,
                         method='SLSQP', bounds=bounds, constraints=constraints)
     return result
+
+def getData(tickers, max_retries=5):
+    start = dt.datetime(2016, 1, 1)
+    end = dt.datetime(2025, 1, 1)
+
+    for attempt in range(max_retries):
+        try:
+            data = yf.download(tickers, start=start, end=end, group_by='ticker', threads=False)
+            if data.empty or 'Close' not in data:
+                raise ValueError("Data is empty or missing 'Close' column")
+            break  # Success
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            time.sleep(3 * (attempt + 1))  # Exponential backoff
+    else:
+        raise RuntimeError("Max retries reached. Failed to fetch data.")
+
+    print("Data columns:", data.columns)
+    data = data['Close']
+
+    # Calculate technical indicators
+    exp1 = data.ewm(span=12, adjust=False).mean()
+    exp2 = data.ewm(span=26, adjust=False).mean()
+    MACD = exp1 - exp2
+    signal_line = MACD.ewm(span=9, adjust=False).mean()
+
+    fifty = data.rolling(window=50).mean()
+    twohundred = data.rolling(window=200).mean()
+
+    return data, fifty, twohundred, MACD, signal_line
 
 def getData(tickers):
     start = dt.datetime(2016, 1, 1)
@@ -299,53 +324,30 @@ def calculations(tickers, curr_year, initial_investment):
         x_values.append(counter)
     return x_values, market_value, static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal
 
-if __name__ == "__main__" :
-#SPY QQQ IWM IWN MDY AGG VNQ VWO VWEAX
-#VOO VGT VTWO VTWV VO BND VNQ VWO VWEAX
-#VBR VSS
-#VISVX DISVX
-    app = Dash(__name__)
+if __name__ == "__main__":
+    # Example usage
+    tickers = ['SPY', 'QQQ', 'IWM', 'VNQ']  # You can change this to your desired tickers
+    year = 2020
+    initial_investment = 10000
 
-    app.layout = html.Div([
-	html.H6("Investment Outlook"),
-        dcc.Graph(id='graph-with-slider'),
-	html.Br(),
-        html.Div([
-        " stocks: ",
-        dcc.Input( type='text', value="AAPL NFLX GOOGL AMZN", id='stock-slider'),
-        " Current year: ",
-        dcc.Input( type='number', value=2019, id='current-year-slider'),
-        " Initial investment: ",
-        dcc.Input( type='number', value=100000, id='investment-slider'),
-        html.Button('Submit', id='submit-val', n_clicks=0)
-	]),
-    ])
-    @app.callback(
-	Output('graph-with-slider', 'figure'),
-	[State('stock-slider', 'value'),
-    State('current-year-slider', 'value'),
-	State('investment-slider', 'value')],
-    Input('submit-val', 'n_clicks'))
+    x_values, y_values, static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal = calculations(
+        tickers, year, initial_investment
+    )
 
+    # Plot using matplotlib
+    plt.figure(figsize=(14, 8))
+    plt.plot(x_values, y_values, marker='o', label='Dynamic')
+    plt.plot(x_values, static_y, marker='o', label='Static')
+    plt.plot(x_values, static_ma, marker='o', label='Static & MA')
+    plt.plot(x_values, dynamic_ma, marker='o', label='Dynamic & MA')
+    plt.plot(x_values, static_macd_signal, marker='o', label='Static & MACD Signal')
+    plt.plot(x_values, dynamic_macd_signal, marker='o', label='Dynamic & MACD & MA')
+    plt.plot(x_values, normal_macd_signal, marker='o', label='Dynamic & MACD Signal')
 
-    def update_figure(stocks, year, investment, n_clicks):
-        if n_clicks is None:
-            raise PreventUpdate
-        else:
-            stocks = stocks.split(' ')
-            print(stocks)
-            x_values, y_values, static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal = calculations(stocks, year, investment)
-            fig = px.line(x=x_values, y=[y_values,static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal], template="plotly_dark", markers = True,
-            labels={'x':'months', 'y':'return', }) # override keyword names with labels
-            newnames = {'wide_variable_0':'Dynamic', 'wide_variable_1': 'Static', 'wide_variable_2': 'Static & MA', 'wide_variable_3': 'Dynamic & MA', 'wide_variable_4': 'Static & macd_signal', 'wide_variable_5': 'Dynamic & macd_signal & MA', 'wide_variable_6': 'Dynamic & macd_signal'}
-            fig.for_each_trace(lambda t: t.update(name = newnames[t.name],
-                                                  legendgroup = newnames[t.name],
-                                                  hovertemplate = t.hovertemplate.replace(t.name, newnames[t.name])
-                                                 )
-                              )
-
-            fig.update_layout(transition_duration=500)
-            return fig
-
-    if __name__ == "__main__":
-        app.run_server(debug=True)
+    plt.title('Portfolio Strategy Comparison Over Time')
+    plt.xlabel('Months')
+    plt.ylabel('Portfolio Value ($)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
