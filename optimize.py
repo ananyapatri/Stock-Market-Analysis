@@ -191,34 +191,50 @@ def returns_calculation(percentages, initial_investment, curr_year, curr_end_yea
     print("Return after", curr_year, "/", curr_month, ":", market_value[-1])
     return market_value[-1]
 
-def accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month):
+def accounting_for_movavg(percentages, fifty, twohundred, curr_year, curr_end_year, curr_month, curr_end_month):
     """
     Description: Calculates percentages accounting for the fifty and two hundred MAs
     Output: New normalized percentage list
     """
-    fiftystart = fifty.index.searchsorted(dt.datetime(curr_year, curr_month, 1))#gets the data row number for fifty day moving average
-    twohundredstart = twohundred.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
-    new_fifty = fifty.iloc[fiftystart]#accesses row for fifty day moving average
-    new_twohundred = twohundred.iloc[twohundredstart]
-    flag = (new_fifty - new_twohundred)/new_twohundred#checks to see if the moving averages differ by a distinct margin
-    counter = 0
+    try:
+        fiftystart = fifty.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
+        twohundredstart = twohundred.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
+
+        if fiftystart >= len(fifty) or twohundredstart >= len(twohundred):
+            raise IndexError("Date index out of bounds for moving averages. Possibly too recent.")
+
+        new_fifty = fifty.iloc[fiftystart]
+        new_twohundred = twohundred.iloc[twohundredstart]
+    except IndexError as e:
+        print(f"⚠️ Not enough data for moving average adjustments in {curr_year}-{curr_month}. Skipping MA adjustment.")
+        return percentages  # Fall back to unadjusted percentages
+
+    flag = (new_fifty - new_twohundred)/new_twohundred
     percentages_copy = copy.deepcopy(percentages)
-    print(flag)
-    print(percentages)
-    for i in flag:
-        if i < -0.01:
-            percentages_copy[counter] = percentages[counter]*0.5
-        elif i > 0.01:
-            percentages_copy[counter] = percentages[counter]*1.5
-        counter += 1
-    norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]#normalizes the list so they add to 1
+
+    for i, val in enumerate(flag):
+        if val < -0.01:
+            percentages_copy[i] *= 0.5
+        elif val > 0.01:
+            percentages_copy[i] *= 1.5
+
+    norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]
     return norm
 
 def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
-    macd_val = MACD.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
-    signal_val = signal_line.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
-    new_macd = MACD.iloc[macd_val]
-    new_signal = signal_line.iloc[signal_val]
+    try:
+        macd_val = MACD.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
+        signal_val = signal_line.index.searchsorted(dt.datetime(curr_year, curr_month, 1))
+
+        if macd_val >= len(MACD) or signal_val >= len(signal_line):
+            raise IndexError("Date index out of bounds for MACD or signal line.")
+
+        new_macd = MACD.iloc[macd_val]
+        new_signal = signal_line.iloc[signal_val]
+    except IndexError as e:
+        print(f"Not enough data for MACD signal adjustments in {curr_year}-{curr_month}. Skipping MACD adjustment.")
+        return percentages  # Fall back to previous allocation
+
     percentages_copy = copy.deepcopy(percentages)
     for i in range(len(percentages)):
         if (new_macd[i] > new_signal[i]):
@@ -228,8 +244,10 @@ def macd_signal(MACD, signal_line, curr_year, curr_month, percentages):
     for i in range(len(percentages)):
         if (new_macd[i] > 0 and new_signal[i] > 0):
             percentages_copy[i] = percentages[i]*1.5
-    norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]#normalizes the list so they add to 1
+
+    norm = [round(float(i)/sum(percentages_copy), 4) for i in percentages_copy]
     return norm
+
 
 def calculations(tickers, curr_year, initial_investment):
     data, fifty, twohundred, MACD, signal_line = getData(tickers)
@@ -278,6 +296,7 @@ def calculations(tickers, curr_year, initial_investment):
         movavg_percentages = accounting_for_movavg(percentages, fifty, twohundred, curr_year,curr_end_year, curr_month, curr_end_month)
         macd_signal_normal = macd_signal(MACD, signal_line, curr_year, curr_month, percentages)
         macd_signal_dynamic = macd_signal(MACD, signal_line, curr_year, curr_month, movavg_percentages)
+        print(movavg_percentages, "ihihihihih")
         if count == 0:
             static_percentages = percentages
             #static_percentages = [1,0] #percentages #[1.0, 0, 0, 0, 0, 0, 0, 0, 0]  #
@@ -324,10 +343,49 @@ def calculations(tickers, curr_year, initial_investment):
         x_values.append(counter)
     return x_values, market_value, static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal
 
+def get_current_month_allocations(tickers, curr_year, curr_month):
+    print(f"\nFetching data and calculating allocation for {curr_year}-{str(curr_month).zfill(2)}...\n")
+    data, fifty, twohundred, MACD, signal_line = getData(tickers)
+    past_start = curr_year - 4
+    past_end = curr_year
+    num_portfolios = 50000
+    risk_free_rate = 0.0178
+    stock_num = len(tickers)
+
+    log_returns = setup(past_start, past_end, 1, tickers, data)
+    cov_matrix = log_returns.cov()
+    mean_returns = log_returns.mean()
+    base_alloc = display_simulated_ef_with_random(
+        mean_returns, cov_matrix, num_portfolios, risk_free_rate, log_returns, stock_num
+    )
+
+    ma_alloc = accounting_for_movavg(base_alloc, fifty, twohundred, curr_year, curr_year, curr_month, curr_month + 1)
+    final_alloc = macd_signal(MACD, signal_line, curr_year, curr_month, ma_alloc)
+    allocation_dict = {ticker: pct for ticker, pct in zip(tickers, final_alloc)}
+    print("Recommended Portfolio Allocation:\n")
+    for ticker, pct in allocation_dict.items():
+        print(f" - {ticker}: {pct*100:.2f}%")
+
+    return allocation_dict
+
+
 if __name__ == "__main__":
     # Example usage
+    # tickers = ['SPY', 'QQQ', 'IWM', 'VNQ']
+
+    # try:
+    #     year = int(input("Enter the current year (e.g., 2025): "))
+    #     month = int(input("Enter the current month (1-12): "))
+    #     assert 1 <= month <= 12
+    # except (ValueError, AssertionError):
+    #     print("❌ Invalid input. Please enter a valid year and month (1-12).")
+    #     exit()
+
+    # _ = get_current_month_allocations(tickers, year, month)
+
+
     tickers = ['SPY', 'QQQ', 'IWM', 'VNQ']  # You can change this to your desired tickers
-    year = 2020
+    year = 2017
     initial_investment = 10000
 
     x_values, y_values, static_y, static_ma, dynamic_ma, static_macd_signal, dynamic_macd_signal, normal_macd_signal = calculations(
